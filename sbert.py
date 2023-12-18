@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import Sampler, BatchSampler, Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader
 
 from transformers import (
     AutoTokenizer,
@@ -30,11 +30,12 @@ def get_runtime_args():
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--num_workers", type=int, default=2)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--train_data_path", type=str)
     parser.add_argument("--dev_data_path", type=str)
     parser.add_argument("--test_data_path", type=str)
     parser.add_argument("--saving_path", type=str)
+    parser.add_argument("--use_amp", default=False, action="store_true")
 
     return parser
 
@@ -60,10 +61,10 @@ def read_data(file_path):
   return txts, lbls
 
 
-def collate_batch(batch):
+def collate_batch(batch, max_len):
     texts, labels = zip(*batch)
 
-    tokenized_inputs = tokenizer.batch_encode_plus(list(texts), truncation=True, padding=True, max_length=MAX_LEN, return_tensors="pt")
+    tokenized_inputs = tokenizer.batch_encode_plus(list(texts), truncation=True, padding=True, max_length=max_len, return_tensors="pt")
 
     labels = torch.tensor(labels, dtype=torch.long)
 
@@ -86,28 +87,6 @@ class MGTDDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.txts[idx], self.lbls[idx]
-    
-
-class GroupedSampler(Sampler):
-    def __init__(self, seqs, batch_size):
-        self.batch_size = batch_size
-        # Pair each sequence index with its length
-        self.index_and_lengths = [(idx, len(tokenizer.encode(s, add_special_tokens=False))) for idx, s in enumerate(seqs)]
-
-    def __iter__(self):
-        random.shuffle(self.index_and_lengths)
-
-        # Create temporary list for groups of BATCH_SIZE * 100
-        grouped_indices = []
-        for i in range(0, len(self.index_and_lengths), self.batch_size * 100):
-            sorted_group = sorted(self.index_and_lengths[i:i + self.batch_size * 100], key=lambda x: x[1])
-            grouped_indices.extend([index for index, length in sorted_group])
-
-        # Return the list of indices (dropping the lengths)
-        return iter(grouped_indices)
-
-    def __len__(self):
-        return len(self.index_and_lengths)
 
 
 class SentenceTransformerForClassification(nn.Module):
@@ -137,7 +116,7 @@ class SentenceTransformerForClassification(nn.Module):
         return logits
 
 
-def process(model, loader, criterion, optim=None):
+def process(model, loader, device, criterion, optim=None):
     epoch_loss, epoch_acc, total = 0, 0, 0
     preds, lbls = [], []
 
@@ -148,16 +127,18 @@ def process(model, loader, criterion, optim=None):
         unit="batches"
     ):
 
-        batch_input = {k: v.to(DEVICE) for k, v in batch.items() if k != 'labels'}
-        lbl = batch['labels'].to(DEVICE)
+        batch_input = {k: v.to(device) for k, v in batch.items() if k != 'labels'}
+        lbl = batch['labels'].to(device)
 
-        logits = model(**batch_input)
-        loss = criterion(logits, lbl)
+        with torch.autocast(device_type=device, dtype=torch.float16, enabled=scaler.is_enabled()):
+            logits = model(**batch_input)
+            loss = criterion(logits, lbl)
 
         if optim is not None:
             optim.zero_grad()
-            loss.backward()
-            optim.step()
+            scaler.scale(loss).backward()
+            scaler.step(optim)
+            scaler.update()
 
         pred = logits.argmax(dim=1)
         epoch_loss += loss.item() * lbl.shape[0]
@@ -223,6 +204,8 @@ if __name__ == "__main__":
     SAVING_PATH = args.saving_path
     logging_file = 'metrics.csv'
 
+    scaler = torch.cuda.amp.GradScaler(enabled=args.use_amp)
+
     seed_everything(SEED)
 
     # avoids parallelism errors when both tokenizers and torch dataloaders use multiprocessing 
@@ -245,12 +228,9 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
     # create DataLoader
-    train_grouped_sampler = GroupedSampler(train_data[0], BATCH_SIZE)
-    train_sampler = BatchSampler(train_grouped_sampler, batch_size=BATCH_SIZE, drop_last=False)
-
-    train_loader = DataLoader(train_dataset, batch_sampler=train_sampler, num_workers=NUM_WORKERS, collate_fn=collate_batch)
-    dev_loader = DataLoader(dev_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS, collate_fn=collate_batch)
-    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS, collate_fn=collate_batch)
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS, collate_fn=lambda batch: collate_batch(batch, MAX_LEN))
+    dev_loader = DataLoader(dev_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS, collate_fn=lambda batch: collate_batch(batch, MAX_LEN))
+    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS, collate_fn=lambda batch: collate_batch(batch, MAX_LEN))
 
     # load model
     model = SentenceTransformerForClassification(MODEL_NAME, 6).to(DEVICE)
@@ -264,11 +244,11 @@ if __name__ == "__main__":
     f1_decreasing_count = 0
     for epoch in range(1, NUM_EPOCHS + 1):
         model.train()
-        train_loss, train_acc, train_f1 = process(model, train_loader, criterion, optimizer)
+        train_loss, train_acc, train_f1 = process(model, train_loader, DEVICE, criterion, optimizer)
 
         model.eval()
         with torch.no_grad():
-            val_loss, val_acc, val_f1 = process(model, dev_loader, criterion)
+            val_loss, val_acc, val_f1 = process(model, dev_loader, DEVICE, criterion)
 
         # save metrics
         save_metrics(

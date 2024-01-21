@@ -1,7 +1,7 @@
 import os
 import sys
-import argparse
 import json
+import yaml
 import random
 import wandb
 from tqdm import tqdm
@@ -22,26 +22,6 @@ from transformers import (
     AutoTokenizer,
     AutoModel,
 )
-
-
-def get_runtime_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model_name", type=str)
-    parser.add_argument("--max_length", type=int, default=512)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--random_seed", type=int, default=42)
-    parser.add_argument("--num_epochs", type=int, default=15)
-    parser.add_argument("--early_stop", type=int, default=3)
-    parser.add_argument("--num_workers", type=int, default=2)
-    parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--train_data_path", type=str)
-    parser.add_argument("--dev_data_path", type=str)
-    parser.add_argument("--test_data_path", type=str)
-    parser.add_argument("--saving_path", type=str)
-    parser.add_argument("--use_amp", default=False, action="store_true")
-
-    return parser
 
 
 def seed_everything(seed: int):
@@ -217,7 +197,7 @@ def run_epochs(num_epochs, early_stop, model, train_loader, dev_loader, device, 
         print(f"Evaluation: [Epoch {epoch:2d}, Loss: {val_loss:8.6f}, Acc: {val_acc:.4f}, F1: {val_f1:.4f}]")
 
         # save the model if the validation acc is the highest
-        if val_acc > highest_val_acc or val_loss < lowest_val_loss:
+        if val_acc > highest_val_acc:
             highest_val_acc = val_acc
             _path = saving_path + f"val_acc_{val_acc:.4f}_epoch{epoch}.pt"
             torch.save(model.state_dict(), _path)
@@ -269,27 +249,37 @@ def test_results(saving_path, model, test_loader, device, criterion):
 
 if __name__ == "__main__":
     # set configs
-    parser = get_runtime_args()
-    args = parser.parse_args()
+    with open('./configs/stmpnetv1_sweep_config.yaml', 'r') as f:
+        sweep_config = yaml.load(f, Loader=yaml.FullLoader)
 
-    MODEL_NAME = args.model_name
-    MAX_LEN = args.max_length
-    LEARNING_RATE = args.lr
-    BATCH_SIZE = args.batch_size
-    SEED = args.random_seed
-    NUM_EPOCHS = args.num_epochs
-    EARLY_STOP = args.early_stop
-    NUM_WORKERS = args.num_workers
-    DEVICE = args.device
+    run = wandb.init(project='Machine-Generated-Text-Detection', config=sweep_config)
+    
+    # Use hyperparameters from wandb
+    config = wandb.config
 
-    TRAIN_PATH = args.train_data_path
-    DEV_PATH = args.dev_data_path
-    TEST_PATH = args.test_data_path
+    MODEL_NAME = config.model_name
+    MAX_LEN = config.max_len
+    LEARNING_RATE = config.learning_rate
+    BATCH_SIZE = config.batch_size
+    SEED = config.random_seed
+    NUM_EPOCHS = config.num_epochs
+    EARLY_STOP = config.early_stop
+    NUM_WORKERS = config.num_workers
+    DEVICE = config.device
 
-    SAVING_PATH = args.saving_path
+    TRAIN_PATH = config.train_data_path
+    DEV_PATH = config.dev_data_path
+    TEST_PATH = config.test_data_path
+
+    if 'all-mpnet-base-v1' in MODEL_NAME:
+        SAVING_PATH = f'./stmpnetv1_lr{LEARNING_RATE}_bs{BATCH_SIZE}_results/'
+    elif 'all-mpnet-base-v2' in MODEL_NAME:
+        SAVING_PATH = f'./stmpnetv2_lr{LEARNING_RATE}_bs{BATCH_SIZE}_results/'
+    elif 'all-roberta-large-v1' in MODEL_NAME:
+        SAVING_PATH = f'./strbta_lr{LEARNING_RATE}_bs{BATCH_SIZE}_results/'
     logging_file = 'metrics.csv'
 
-    scaler = torch.cuda.amp.GradScaler(enabled=args.use_amp)
+    scaler = torch.cuda.amp.GradScaler(enabled=False)
 
     seed_everything(SEED)
 
@@ -324,26 +314,7 @@ if __name__ == "__main__":
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
 
-    # start a new run in wandb
-    wandb.init(
-        project="Machine-Generated-Text-Detection",
-        name=SAVING_PATH[2:-9],
-        config={
-        "model_name": MODEL_NAME,
-        "max_len": MAX_LEN,
-        "learning_rate": LEARNING_RATE,
-        "batch_size": BATCH_SIZE,
-        "use_amp": args.use_amp,
-        "seed": SEED,
-        "num_epochs": NUM_EPOCHS,
-        "early_stop": EARLY_STOP,
-        "num_workers": NUM_WORKERS,
-        "device": DEVICE
-    })
-
     run_epochs(NUM_EPOCHS, EARLY_STOP, model, train_loader, dev_loader, DEVICE, criterion, SAVING_PATH, logging_file, optimizer)
-
-    wandb.finish()
 
     # load the best model and test on test set
     test_results(SAVING_PATH, model, test_loader, DEVICE, criterion)

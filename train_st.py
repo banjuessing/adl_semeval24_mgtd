@@ -213,7 +213,7 @@ class SentenceTransformerModel(nn.Module):
         return outputs
 
 
-def process_st(model, loader, device, criterion, optim=None):
+def process_st(model, loader, device, scaler, criterion, optim=None):
     epoch_loss, epoch_acc, total = 0, 0, 0
     preds, lbls = [], []
 
@@ -247,7 +247,7 @@ def process_st(model, loader, device, criterion, optim=None):
     return epoch_loss / total, epoch_acc / total, f1_score(lbls, preds, average='macro'), preds, lbls
 
 
-def process_t(model, loader, device, criterion, optim=None):
+def process_t(model, loader, device, scaler, criterion, optim=None):
     epoch_loss, epoch_acc, total = 0, 0, 0
     preds, lbls = [], []
 
@@ -306,7 +306,7 @@ def save_metrics(*args, path, fname):
             f.write("\n")
 
 
-def run_epochs(num_epochs, early_stop, model, model_name, train_loader, dev_loader, device, 
+def run_epochs(num_epochs, early_stop, model, model_name, train_loader, dev_loader, device, scaler,
                criterion, saving_path, logging_file, optimizer):
     # main training loop
     highest_val_acc = 0
@@ -315,16 +315,16 @@ def run_epochs(num_epochs, early_stop, model, model_name, train_loader, dev_load
     for epoch in range(1, num_epochs + 1):
         model.train()
         if "sentence-transformers" in model_name:
-            train_loss, train_acc, train_f1, _, _ = process_st(model, train_loader, device, criterion, optimizer)
+            train_loss, train_acc, train_f1, _, _ = process_st(model, train_loader, device, scaler, criterion, optimizer)
         else:
-            train_loss, train_acc, train_f1, _, _ = process_t(model, train_loader, device, criterion, optimizer)
+            train_loss, train_acc, train_f1, _, _ = process_t(model, train_loader, device, scaler, criterion, optimizer)
 
         model.eval()
         with torch.no_grad():
             if "sentence-transformers" in model_name:
-                val_loss, val_acc, val_f1, _, _ = process_st(model, dev_loader, device, criterion)
+                val_loss, val_acc, val_f1, _, _ = process_st(model, dev_loader, device, scaler, criterion)
             else:
-                val_loss, val_acc, val_f1, _, _ = process_t(model, dev_loader, device, criterion)
+                val_loss, val_acc, val_f1, _, _ = process_t(model, dev_loader, device, scaler, criterion)
 
         # save metrics
         save_metrics(
@@ -368,7 +368,7 @@ def run_epochs(num_epochs, early_stop, model, model_name, train_loader, dev_load
                 break
 
 
-def test_results(saving_path, model, model_name, test_loader, device, criterion):
+def test_results(saving_path, model, model_name, test_loader, device, scaler, criterion):
     # select saved best model
     best_model_path = sorted([f for f in os.listdir(saving_path) if f.endswith('.pt')], reverse=True)[0]
     model.load_state_dict(torch.load(saving_path + best_model_path))
@@ -377,9 +377,9 @@ def test_results(saving_path, model, model_name, test_loader, device, criterion)
     model.eval()
     with torch.no_grad():
         if "sentence-transformers" in model_name:
-            test_loss, test_acc, test_f1, predicted_labels, true_labels = process_st(model, test_loader, device, criterion)
+            test_loss, test_acc, test_f1, predicted_labels, true_labels = process_st(model, test_loader, device, scaler, criterion)
         else:
-            test_loss, test_acc, test_f1, predicted_labels, true_labels = process_t(model, test_loader, device, criterion)
+            test_loss, test_acc, test_f1, predicted_labels, true_labels = process_t(model, test_loader, device, scaler, criterion)
 
     print(f"Test: [Loss: {test_loss:8.6f}, Acc: {test_acc:.4f}, F1: {test_f1:.4f}]")
     
@@ -524,10 +524,10 @@ if __name__ == "__main__":
         "device": DEVICE
     })
 
-    run_epochs(NUM_EPOCHS, EARLY_STOP, model, MODEL_NAME, train_loader, dev_loader, DEVICE, 
+    run_epochs(NUM_EPOCHS, EARLY_STOP, model, MODEL_NAME, train_loader, dev_loader, DEVICE, scaler,
                criterion, SAVING_PATH, logging_file, optimizer)
 
     wandb.finish()
 
     # load the best model and test on test set
-    test_results(SAVING_PATH, model, MODEL_NAME, test_loader, DEVICE, criterion)
+    test_results(SAVING_PATH, model, MODEL_NAME, test_loader, DEVICE, scaler, criterion)

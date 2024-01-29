@@ -8,6 +8,7 @@ import torch
 from sklearn.metrics import confusion_matrix
 
 from train_st import *
+from loss_func import *
 
 
 def get_test_args():
@@ -15,7 +16,10 @@ def get_test_args():
     parser.add_argument("--model_name", type=str)
     parser.add_argument("--max_length", type=int, default=512)
     parser.add_argument("--loss", type=str, default="ce", choices=["ce", "scl", "dualcl"])
+    parser.add_argument("--alpha", type=float, default=0.1)
+    parser.add_argument("--temp", type=float, default=0.1)
     parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--random_seed", type=int, default=42)
     parser.add_argument("--num_workers", type=int, default=2)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--test_data_path", type=str)
@@ -25,7 +29,7 @@ def get_test_args():
     return parser
 
 
-def save_test_results(model_path, saving_path, model_name, loss_func, test_loader, num_labels, device, criterion, mixed):
+def save_test_results(model_path, saving_path, model_name, loss_func, test_loader, num_labels, device, scaler, criterion, mixed):
     # load model
     if "sentence-transformers" in model_name:
         model = SentenceTransformerModel(model_name, num_labels).to(device)
@@ -37,9 +41,9 @@ def save_test_results(model_path, saving_path, model_name, loss_func, test_loade
     model.eval()
     with torch.no_grad():
         if "sentence-transformers" in model_name:
-            test_loss, test_acc, test_f1, predicted_labels, true_labels = process_st(model, test_loader, device, criterion)
+            test_loss, test_acc, test_f1, predicted_labels, true_labels = process_st(model, test_loader, device, scaler, criterion)
         else:
-            test_loss, test_acc, test_f1, predicted_labels, true_labels = process_t(model, test_loader, device, criterion)
+            test_loss, test_acc, test_f1, predicted_labels, true_labels = process_t(model, test_loader, device, scaler, criterion)
 
     print(f"Test: [Loss: {test_loss:8.6f}, Acc: {test_acc:.4f}, F1: {test_f1:.4f}]")
     
@@ -79,7 +83,10 @@ if __name__ == "__main__":
     MODEL_NAME = args.model_name
     MAX_LEN = args.max_length
     LOSS_FUNC = args.loss
+    ALPHA = args.alpha
+    TEMP = args.temp
     BATCH_SIZE = args.batch_size
+    SEED = args.random_seed
     NUM_WORKERS = args.num_workers
     DEVICE = args.device
     TEST_DATA_PATH = args.test_data_path
@@ -87,6 +94,11 @@ if __name__ == "__main__":
     SAVING_PATH = args.saving_path
     MIXED = args.mixed_domain
 
+    scaler = torch.cuda.amp.GradScaler(enabled=True)
+
+    seed_everything(SEED)
+
+    idx2lbl = {0: 'human', 1: 'chatGPT', 2: 'cohere', 3: 'davinci', 4: 'bloomz', 5: 'dolly'}
     lbl2idx = {'human': 0, 'chatGPT': 1,'cohere': 2, 'davinci': 3, 'bloomz': 4, 'dolly': 5}
     
     # load data
@@ -112,4 +124,4 @@ if __name__ == "__main__":
         criterion = CELoss()
 
     # save test results
-    save_test_results(MODEL_PATH, SAVING_PATH, MODEL_NAME, LOSS_FUNC, test_loader, len(lbl2idx), DEVICE, criterion, MIXED)
+    save_test_results(MODEL_PATH, SAVING_PATH, MODEL_NAME, LOSS_FUNC, test_loader, len(lbl2idx), DEVICE, scaler, criterion, MIXED)

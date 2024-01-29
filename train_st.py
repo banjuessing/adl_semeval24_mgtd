@@ -18,6 +18,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 
+from augmentation import get_augmentation
 from loss_func import CELoss, SupConLoss, DualLoss
 
 from transformers import AutoTokenizer, AutoModel
@@ -25,25 +26,39 @@ from transformers import AutoTokenizer, AutoModel
 
 def get_runtime_args():
     parser = argparse.ArgumentParser()
+    # specify model
     parser.add_argument("--model_name", type=str)
     parser.add_argument("--max_length", type=int, default=512)
-    parser.add_argument("--dualcl", default=False, action="store_true")
-    parser.add_argument("--scl", default=False, action="store_true")
-    parser.add_argument("--ce", default=False, action="store_true")
-    parser.add_argument("--lr", type=float, default=1e-4)
+    # specify loss function
+    parser.add_argument("--loss", type=str, default="ce", choices=["ce", "scl", "dualcl"])
+    # specify training hyperparams
+    parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--decay", type=float, default=0.01)
-    parser.add_argument('--alpha', type=float, default=0.5)
-    parser.add_argument('--temp', type=float, default=0.1)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--alpha", type=float, default=0.1)
+    parser.add_argument("--temp", type=float, default=0.1)
+    parser.add_argument("--batch_size", type=int, default=32)
+    # specify augmentation methods
+    parser.add_argument('--use_aug', default=False, action='store_true')
+    parser.add_argument('--augmodel_path', type=str, default=None)
+    parser.add_argument('--aug_all', default=True, action='store_true')
+    parser.add_argument('--synonym', default=True, action='store_true')
+    parser.add_argument('--antonym', default=False, action='store_true')
+    parser.add_argument('--swap', default=False, action='store_true')
+    parser.add_argument('--spelling', default=False, action='store_true')
+    parser.add_argument('--word2vec', default=False, action='store_true')
+    parser.add_argument('--contextual', default=False, action='store_true')
+    # others
     parser.add_argument("--random_seed", type=int, default=42)
-    parser.add_argument("--num_epochs", type=int, default=15)
+    parser.add_argument("--num_epochs", type=int, default=20)
     parser.add_argument("--early_stop", type=int, default=3)
     parser.add_argument("--num_workers", type=int, default=2)
     parser.add_argument("--device", type=str, default="cuda")
+    # paths
     parser.add_argument("--train_data_path", type=str)
     parser.add_argument("--dev_data_path", type=str)
     parser.add_argument("--test_data_path", type=str)
     parser.add_argument("--saving_path", type=str)
+
     parser.add_argument("--use_amp", default=False, action="store_true")
 
     return parser
@@ -70,24 +85,12 @@ def read_data(file_path):
   return txts, lbls
 
 
-def collate_batch(batch, tokenizer, max_len, num_labels, dualcl, scl, ce):
+def collate_batch(batch, tokenizer, max_len, num_labels, model_name, loss_func):
     texts, labels = zip(*batch)
 
     labels = torch.tensor(labels, dtype=torch.long)
 
-    if dualcl or scl or ce:
-        tokenized_inputs = tokenizer(texts, 
-                             truncation=True, padding=True, max_length=max_len, 
-                             is_split_into_words=True, add_special_tokens=True, 
-                             return_tensors='pt')
-        if dualcl:
-            positions = torch.zeros_like(tokenized_inputs['input_ids'])
-            positions[:, num_labels:] = torch.arange(0, tokenized_inputs['input_ids'].size(1)-num_labels)
-            tokenized_inputs['position_ids'] = positions
-
-        return tokenized_inputs, labels
-
-    else:
+    if "sentence-transformers" in model_name:
         tokenized_inputs = tokenizer.batch_encode_plus(list(texts), 
                                                        truncation=True, padding=True, max_length=max_len, 
                                                        return_tensors="pt")
@@ -100,35 +103,60 @@ def collate_batch(batch, tokenizer, max_len, num_labels, dualcl, scl, ce):
 
         return batch
 
+    else:
+        tokenized_inputs = tokenizer(texts, 
+                                truncation=True, padding=True, max_length=max_len, 
+                                is_split_into_words=True, add_special_tokens=True, 
+                                return_tensors='pt')
+        if loss_func == "dualcl":
+            positions = torch.zeros_like(tokenized_inputs['input_ids'])
+            positions[:, num_labels:] = torch.arange(0, tokenized_inputs['input_ids'].size(1)-num_labels)
+            tokenized_inputs['position_ids'] = positions
+
+        return tokenized_inputs, labels
+
 
 class MGTDDataset(Dataset):
-    def __init__(self, txts, lbls, label_dict, model_name, dualcl, scl, ce):
-        label_list = list(label_dict.keys()) if dualcl else []
-        if dualcl or scl or ce:
-            sep_token = ['</s>'] if 'roberta' in model_name else ['[SEP]']
-            lblstxt_list = []
-            for txt in txts:
-                tokens = txt.lower().split()
-                lblstxt_list.append(label_list + sep_token + tokens)
-            self.txts = lblstxt_list
-            self.lbls = lbls
+    def __init__(self, txts, lbls, 
+                 label_dict, model_name, loss_func,
+                 use_aug=False, augmodel_path=None, aug_all=False,
+                 synonym=False, antonym=False, swap=False, spelling=False, word2vec=False, contextual=False):
+        self.txts = txts
+        self.lbls = lbls
+        self.model_name = model_name
+        self.label_list = list(label_dict.keys()) if loss_func == "dualcl" else []
+        self.sep_token = ['</s>'] if 'roberta' in model_name else ['[SEP]']
+        self.use_aug = use_aug
+
+        if use_aug:
+            self.aug = get_augmentation(augmodel_path, aug_all, 
+                                        synonym, antonym, swap, spelling, word2vec, contextual)
         else:
-            self.txts = txts
-            self.lbls = lbls
+            self.aug = None
 
     def __len__(self):
         return len(self.lbls)
 
     def __getitem__(self, idx):
-        return self.txts[idx], self.lbls[idx]
+        text = self.txts[idx]
+        label = self.lbls[idx]
+        
+        if self.use_aug:
+            text = self.aug.augment(text)[0]
+        
+        if "sentence-transformers" not in self.model_name:
+            tokens = text.lower().split()
+            text = self.label_list + self.sep_token + tokens
+
+        return text, label
 
 
-class TransformerForContrastiveLearning(nn.Module):
-    def __init__(self, model_name, num_labels, dualcl):
+class TransformerModel(nn.Module):
+    def __init__(self, model_name, num_labels, loss_func):
         super().__init__()
         self.base_model = AutoModel.from_pretrained(model_name)
         self.num_labels = num_labels
-        self.dualcl = dualcl
+        self.loss_func = loss_func
         self.linear = nn.Linear(self.base_model.config.hidden_size, num_labels)
         self.dropout = nn.Dropout(0.5)
         for param in self.base_model.parameters():
@@ -138,7 +166,7 @@ class TransformerForContrastiveLearning(nn.Module):
         raw_outputs = self.base_model(**inputs)
         hiddens = raw_outputs.last_hidden_state
         cls_feats = hiddens[:, 0, :]
-        if self.dualcl:
+        if self.loss_func == "dualcl":
             label_feats = hiddens[:, 1:self.num_labels+1, :]
             predicts = torch.einsum('bd,bcd->bc', cls_feats, label_feats)
         else:
@@ -153,7 +181,7 @@ class TransformerForContrastiveLearning(nn.Module):
         return outputs
 
 
-class SentenceTransformerForClassification(nn.Module):
+class SentenceTransformerModel(nn.Module):
     def __init__(self, model_name, num_labels):
         super().__init__()
         self.sentence_transformer = AutoModel.from_pretrained(model_name)
@@ -172,15 +200,20 @@ class SentenceTransformerForClassification(nn.Module):
         pooled_output = self.mean_pooling(model_output, batch['attention_mask'])
 
         # Normalize embeddings
-        pooled_output = F.normalize(pooled_output, p=2, dim=1)
+        normed_pooled_output = F.normalize(pooled_output, p=2, dim=1)
 
         # Classifier
-        logits = self.classifier(pooled_output)
+        logits = self.classifier(normed_pooled_output)
 
-        return logits
+        outputs = {
+            'predicts': logits,
+            'cls_feats': pooled_output
+        }
+
+        return outputs
 
 
-def process(model, loader, device, criterion, optim=None):
+def process_st(model, loader, device, criterion, optim=None):
     epoch_loss, epoch_acc, total = 0, 0, 0
     preds, lbls = [], []
 
@@ -195,8 +228,8 @@ def process(model, loader, device, criterion, optim=None):
         lbl = batch['labels'].to(device)
 
         with torch.autocast(device_type=device, dtype=torch.float16, enabled=scaler.is_enabled()):
-            logits = model(**batch_input)
-            loss = criterion(logits, lbl)
+            outputs = model(**batch_input)
+            loss = criterion(outputs, lbl)
 
         if optim is not None:
             optim.zero_grad()
@@ -204,7 +237,7 @@ def process(model, loader, device, criterion, optim=None):
             scaler.step(optim)
             scaler.update()
 
-        pred = logits.argmax(dim=1)
+        pred = outputs['predicts'].argmax(dim=1)
         epoch_loss += loss.item() * lbl.shape[0]
         epoch_acc += (pred == lbl).sum().item()
         total += lbl.shape[0]
@@ -214,7 +247,7 @@ def process(model, loader, device, criterion, optim=None):
     return epoch_loss / total, epoch_acc / total, f1_score(lbls, preds, average='macro'), preds, lbls
 
 
-def process_cl(model, loader, device, criterion, optim=None):
+def process_t(model, loader, device, criterion, optim=None):
     epoch_loss, epoch_acc, total = 0, 0, 0
     preds, lbls = [], []
 
@@ -273,25 +306,25 @@ def save_metrics(*args, path, fname):
             f.write("\n")
 
 
-def run_epochs(num_epochs, early_stop, model, train_loader, dev_loader, device, 
-               criterion, saving_path, logging_file, optimizer, dualcl=False, scl=False, ce=False):
+def run_epochs(num_epochs, early_stop, model, model_name, train_loader, dev_loader, device, 
+               criterion, saving_path, logging_file, optimizer):
     # main training loop
     highest_val_acc = 0
     lowest_val_loss = float('inf')
     num_neg_progress = 0
     for epoch in range(1, num_epochs + 1):
         model.train()
-        if dualcl or scl or ce:
-            train_loss, train_acc, train_f1, _, _ = process_cl(model, train_loader, device, criterion, optimizer)
+        if "sentence-transformers" in model_name:
+            train_loss, train_acc, train_f1, _, _ = process_st(model, train_loader, device, criterion, optimizer)
         else:
-            train_loss, train_acc, train_f1, _, _ = process(model, train_loader, device, criterion, optimizer)
+            train_loss, train_acc, train_f1, _, _ = process_t(model, train_loader, device, criterion, optimizer)
 
         model.eval()
         with torch.no_grad():
-            if dualcl or scl or ce:
-                val_loss, val_acc, val_f1, _, _ = process_cl(model, dev_loader, device, criterion)
+            if "sentence-transformers" in model_name:
+                val_loss, val_acc, val_f1, _, _ = process_st(model, dev_loader, device, criterion)
             else:
-                val_loss, val_acc, val_f1, _, _ = process(model, dev_loader, device, criterion)
+                val_loss, val_acc, val_f1, _, _ = process_t(model, dev_loader, device, criterion)
 
         # save metrics
         save_metrics(
@@ -317,7 +350,7 @@ def run_epochs(num_epochs, early_stop, model, train_loader, dev_loader, device,
         print(f"Training:   [Epoch {epoch:2d}, Loss: {train_loss:8.6f}, Acc: {train_acc:.4f}, F1: {train_f1:.4f}]")
         print(f"Evaluation: [Epoch {epoch:2d}, Loss: {val_loss:8.6f}, Acc: {val_acc:.4f}, F1: {val_f1:.4f}]")
 
-        # save the model if the validation acc is the highest
+        # save the model if the validation acc is the highest or the validation loss is the lowest
         if val_acc > highest_val_acc or val_loss < lowest_val_loss:
             highest_val_acc = val_acc
             _path = saving_path + f"val_acc_{val_acc:.4f}_epoch{epoch}.pt"
@@ -335,7 +368,7 @@ def run_epochs(num_epochs, early_stop, model, train_loader, dev_loader, device,
                 break
 
 
-def test_results(saving_path, model, test_loader, device, criterion, dualcl, scl, ce):
+def test_results(saving_path, model, model_name, test_loader, device, criterion):
     # select saved best model
     best_model_path = sorted([f for f in os.listdir(saving_path) if f.endswith('.pt')], reverse=True)[0]
     model.load_state_dict(torch.load(saving_path + best_model_path))
@@ -343,10 +376,10 @@ def test_results(saving_path, model, test_loader, device, criterion, dualcl, scl
 
     model.eval()
     with torch.no_grad():
-        if dualcl or scl or ce:
-            test_loss, test_acc, test_f1, predicted_labels, true_labels = process_cl(model, test_loader, device, criterion)
+        if "sentence-transformers" in model_name:
+            test_loss, test_acc, test_f1, predicted_labels, true_labels = process_st(model, test_loader, device, criterion)
         else:
-            test_loss, test_acc, test_f1, predicted_labels, true_labels = process(model, test_loader, device, criterion)
+            test_loss, test_acc, test_f1, predicted_labels, true_labels = process_t(model, test_loader, device, criterion)
 
     print(f"Test: [Loss: {test_loss:8.6f}, Acc: {test_acc:.4f}, F1: {test_f1:.4f}]")
     
@@ -378,14 +411,25 @@ if __name__ == "__main__":
 
     MODEL_NAME = args.model_name
     MAX_LEN = args.max_length
-    DUALCL = args.dualcl
-    SCL = args.scl
-    CE = args.ce
+
+    LOSS_FUNC = args.loss
+
     LEARNING_RATE = args.lr
     DECAY = args.decay
     ALPHA = args.alpha
     TEMP = args.temp
     BATCH_SIZE = args.batch_size
+
+    USE_AUG = args.use_aug
+    AUGMODEL_PATH = args.augmodel_path
+    AUG_ALL = args.aug_all
+    SYN = args.synonym
+    ANT = args.antonym
+    SWAP = args.swap
+    SPELLING = args.spelling
+    WORD2VEC = args.word2vec
+    CONTEXTUAL = args.contextual
+
     SEED = args.random_seed
     NUM_EPOCHS = args.num_epochs
     EARLY_STOP = args.early_stop
@@ -415,40 +459,40 @@ if __name__ == "__main__":
     dev_data = read_data(DEV_PATH)
     test_data = read_data(TEST_PATH)
 
-    train_dataset = MGTDDataset(train_data[0], train_data[1], lbl2idx, MODEL_NAME, DUALCL, SCL, CE)
-    dev_dataset = MGTDDataset(dev_data[0], dev_data[1], lbl2idx, MODEL_NAME, DUALCL, SCL, CE)
-    test_dataset = MGTDDataset(test_data[0], test_data[1], lbl2idx, MODEL_NAME, DUALCL, SCL, CE)
+    train_dataset = MGTDDataset(train_data[0], train_data[1], lbl2idx, MODEL_NAME, LOSS_FUNC,
+                                use_aug=USE_AUG, augmodel_path=AUGMODEL_PATH, aug_all=AUG_ALL,
+                                synonym=SYN, antonym=ANT, swap=SWAP, spelling=SPELLING, word2vec=WORD2VEC, contextual=CONTEXTUAL)
+    dev_dataset = MGTDDataset(dev_data[0], dev_data[1], lbl2idx, MODEL_NAME, LOSS_FUNC)
+    test_dataset = MGTDDataset(test_data[0], test_data[1], lbl2idx, MODEL_NAME, LOSS_FUNC)
 
     # get tokenizer
-    if (DUALCL or SCL or CE) and "roberta" in MODEL_NAME:
+    if ("sentence-transformers" not in MODEL_NAME) and ("roberta" in MODEL_NAME):
         tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, add_prefix_space=True)
     else:
         tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
     # create DataLoader
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS, 
-                              collate_fn=lambda batch: collate_batch(batch, tokenizer, MAX_LEN, len(lbl2idx), DUALCL, SCL, CE))
+                              collate_fn=lambda batch: collate_batch(batch, tokenizer, MAX_LEN, len(lbl2idx), MODEL_NAME, LOSS_FUNC))
     dev_loader = DataLoader(dev_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS, 
-                            collate_fn=lambda batch: collate_batch(batch, tokenizer, MAX_LEN, len(lbl2idx), DUALCL, SCL, CE))
+                            collate_fn=lambda batch: collate_batch(batch, tokenizer, MAX_LEN, len(lbl2idx), MODEL_NAME, LOSS_FUNC))
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS, 
-                             collate_fn=lambda batch: collate_batch(batch, tokenizer, MAX_LEN, len(lbl2idx), DUALCL, SCL, CE))
+                             collate_fn=lambda batch: collate_batch(batch, tokenizer, MAX_LEN, len(lbl2idx), MODEL_NAME, LOSS_FUNC))
 
     # load model
-    if DUALCL or SCL or CE:
-        model = TransformerForContrastiveLearning(MODEL_NAME, len(idx2lbl), DUALCL).to(DEVICE)
+    if "sentence-transformers" in MODEL_NAME:
+        model = SentenceTransformerModel(MODEL_NAME, len(idx2lbl)).to(DEVICE)
     else:
-        model = SentenceTransformerForClassification(MODEL_NAME, len(idx2lbl)).to(DEVICE)
-
+        model = TransformerModel(MODEL_NAME, len(idx2lbl), LOSS_FUNC).to(DEVICE)
+        
     # define loss function and optimizer
-    if DUALCL or SCL or CE:
-        if DUALCL:
-            criterion = DualLoss(ALPHA, TEMP)
-        elif SCL:
-            criterion = SupConLoss(ALPHA, TEMP)
-        elif CE:
-            criterion = CELoss()
-    else:
-        criterion = nn.CrossEntropyLoss()
+    if LOSS_FUNC == 'dualcl':
+        criterion = DualLoss(ALPHA, TEMP)
+    elif LOSS_FUNC == 'scl':
+        criterion = SupConLoss(ALPHA, TEMP)
+    elif LOSS_FUNC == 'ce':
+        criterion = CELoss()
+
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=DECAY)
 
     # start a new run in wandb
@@ -458,14 +502,20 @@ if __name__ == "__main__":
         config={
         "model_name": MODEL_NAME,
         "max_len": MAX_LEN,
-        "dualcl": DUALCL,
-        "scl": SCL,
-        "ce": CE,
+        "loss": LOSS_FUNC,
         "learning_rate": LEARNING_RATE,
         "decay": DECAY,
         "alpha": ALPHA,
         "temp": TEMP,
         "batch_size": BATCH_SIZE,
+        "use_aug": USE_AUG,
+        "aug_all": AUG_ALL,
+        "synonym": SYN,
+        "antonym": ANT,
+        "swap": SWAP,
+        "spelling": SPELLING,
+        "word2vec": WORD2VEC,
+        "contextual": CONTEXTUAL,
         "use_amp": args.use_amp,
         "seed": SEED,
         "num_epochs": NUM_EPOCHS,
@@ -474,10 +524,10 @@ if __name__ == "__main__":
         "device": DEVICE
     })
 
-    run_epochs(NUM_EPOCHS, EARLY_STOP, model, train_loader, dev_loader, DEVICE, 
-               criterion, SAVING_PATH, logging_file, optimizer, DUALCL, SCL, CE)
+    run_epochs(NUM_EPOCHS, EARLY_STOP, model, MODEL_NAME, train_loader, dev_loader, DEVICE, 
+               criterion, SAVING_PATH, logging_file, optimizer)
 
     wandb.finish()
 
     # load the best model and test on test set
-    test_results(SAVING_PATH, model, test_loader, DEVICE, criterion, DUALCL, SCL, CE)
+    test_results(SAVING_PATH, model, MODEL_NAME, test_loader, DEVICE, criterion)

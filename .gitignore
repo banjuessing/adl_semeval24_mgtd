@@ -1,3 +1,4 @@
 .DS_Store
 data/
 dataset_split_801010.ipynb
+augmodel/

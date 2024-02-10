@@ -1,0 +1,68 @@
+{
+  "fixed_params": {
+    "model_name": "bert-base-uncased",
+    "text_col": "text",
+    "label_col": "label",
+    "train_data_path": "data/train_data.json",
+    "val_data_path": "data/val_data.json",
+    "regex_query": "", - optional
+    "max_length": 128,
+    "lowercase": true, - optional
+    "augmodel_path": "", - optional
+    "all": true, - optional
+    "synonym": false, - optional
+    "antonym": false, - optional
+    "swap": false, - optional
+    "spelling": false, - optional
+    "word2vec": false, - optional
+    "contextual": false, - optional
+    "augmentation": false, - optional
+    "labels_to_augment": null, - optional
+    "output_dir": "path_to_outputs_dir", 
+    "logging_dir": "path_to_output_logs",
+    "gradient_accumulation_steps": 2, - optional
+    "fp16": true,
+    "dataloader_num_workers": 4,
+    "evaluation_strategy": "steps",
+    "logging_strategy": "steps",
+    "save_strategy": "no",
+    "logging_steps": null,
+    "seed": 42,
+    "data_seed": 42,
+    "load_best_model_at_end": false, - optional
+    "metric_for_best_model": "accuracy", - optional
+    "greater_is_better": true, - optional
+    "eval_metric": "accuracy", 
+    "n_trials": 50,
+    "n_startup_trials": 5,
+    "interval_steps": 2,
+    "n_warmup_steps": 2,
+    "study_results": "path/to/export/study_results.json", 
+  },
+  "tunable_params": {
+    "learning_rate": {
+      "type": "loguniform",
+      "args": [1e-5, 5e-4]
+    },
+    "num_train_epochs": {
+      "type": "int",
+      "args": [2, 10]
+    },
+    "per_device_train_batch_size": {
+      "type": "int",
+      "args": [8, 32]
+    },
+    "per_device_eval_batch_size": {
+      "type": "int",
+      "args": [8, 32]
+    },
+    "warmup_steps": {
+      "type": "int",
+      "args": [0, 500]
+    },
+    "weight_decay": {
+      "type": "uniform",
+      "args": [0.0, 0.3]
+    }
+  }
+}

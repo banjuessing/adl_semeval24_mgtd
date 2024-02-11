@@ -100,22 +100,25 @@ def load_data(config):
     
     return train_data, val_data
 
-def run_training(config, train_data, val_data):
+def run_training(config, train_data, val_data, metrics_processor):
     """
     Run training.
     """
     try:
-        trainer = TextClassificationTrainer(config, train_data, val_data)
+        trainer = TextClassificationTrainer(config, train_data, val_data, metrics_processor)
         trainer.train()
     except Exception as e:
         print(f"Error during training: {e}")
         sys.exit(1)
 
+def print_metrics(metrics):
+    print(metrics)
+
 def main():
     config = parse_args_and_config()
     save_config(config, config['config_save_path'])
     train_data, val_data = load_data(config)
-    run_training(config, train_data, val_data)
+    run_training(config, train_data, val_data, print_metrics)
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()

@@ -6,13 +6,7 @@
     "train_data_path": "F:\\\\applied_deep_learning\\\\data\\\\SemEval2024-Task8\\\\SubtaskB\\\\enrich_comp_data\\\\train_set_comp.jsonl",
     "val_data_path": "F:\\\\applied_deep_learning\\\\data\\\\SemEval2024-Task8\\\\SubtaskB\\\\enrich_comp_data\\\\val_set_comp.jsonl",
     "regex_query": "\\\\s+",
-    "max_length": 128,
-    "augmodel_path": "", 
-    "all": true, 
-    "synonym": false, 
-    "antonym": false, 
-    "word2vec": false, 
-    "contextual": false, 
+    "max_length": 512,
     "output_dir": "F:\\\\UniDrive\\\\WS2324\\\\adl_clean\\\\training_test\\\\model_output",
     "logging_dir": "F:\\\\UniDrive\\\\WS2324\\\\adl_clean\\\\training_test\\\\model_output_logs",
     "gradient_accumulation_steps": 2, 
@@ -23,59 +17,35 @@
     "save_strategy": "epoch",
     "seed": 42,
     "data_seed": 42,
-    "eval_metric": "accuracy", 
+    "eval_metric": "eval_accuracy", 
     "n_trials": 20,
     "n_startup_trials": 5,
     "interval_steps": 2,
     "n_warmup_steps": 2,
     "study_results": "F:\\\\UniDrive\\\\WS2324\\\\adl_clean\\\\training_test\\\\study_results.json",
-    "per_device_eval_batch_size": 42
+    "per_device_eval_batch_size": 40
   },
-  "tunable_params": {
-    "learning_rate": {
-      "type": "loguniform",
-      "args": [1e-5, 5e-4]
+    "tunable_params": {
+      "learning_rate": {
+        "type": "float",
+        "args": [1e-3, 5e-4]
     },
     "num_train_epochs": {
       "type": "int",
       "args": [2, 10]
     },
     "per_device_train_batch_size": {
-      "type": "int",
-      "args": [4, 16]
+      "type": "categorical",
+      "args": [4, 8, 12]
     },
     "warmup_steps": {
       "type": "int",
       "args": [0, 500]
     },
     "weight_decay": {
-      "type": "uniform",
-      "args": [0.0, 0.3]
-    },
-    "augmentation": {
-      "type": "categorical",
-      "args": [true, false]
-    },
-    "spelling": {
-      "type": "categorical",
-      "args": [true, false],
-      "conditions": {
-        "augmentation": true
-      }
-    },
-    "swap": {
-      "type": "categorical",
-      "args": [true, false],
-      "conditions": {
-        "augmentation": true
-      }
-    },
-    "labels_to_augment": {
-      "type": "categorical",
-      "args": [null, [0, 5]],
-      "conditions": {
-        "augmentation": true
-      }
+      "type": "float",
+      "args": [0.001, 0.003]
     }
   }
 }
+

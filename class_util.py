@@ -10,14 +10,16 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from augmentation import get_augmentation
 
 
-class MetricsCaptureCallback(TrainerCallback):
-    def __init__(self):
-        super().__init__()
-        self.metrics = []
+class MetricsCallback(TrainerCallback):
+    "A callback that calls a function with the evaluation metrics after each evaluation."
 
-    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
-        if metrics is not None:
-            self.metrics.append(metrics)
+    def __init__(self, metrics_processor):
+        self.metrics_processor = metrics_processor
+        self.metrics = []  # Add this line
+
+    def on_evaluate(self, args, state, control, metrics, **kwargs):
+        self.metrics_processor(metrics)
+        self.metrics.append(metrics)  # Add this line
 
 class CustomTrainer(Trainer):
     def __init__(self, *args, metrics_capture_callback=None, **kwargs):
@@ -26,7 +28,7 @@ class CustomTrainer(Trainer):
             self.add_callback(metrics_capture_callback)
 
 class TextClassificationTrainer:
-    def __init__(self, config, train_data, val_data):
+    def __init__(self, config, train_data, val_data, metrics_processor):
         required_fields = ['model_name', 'text_col', 'label_col']
 
         for field in required_fields:
@@ -75,7 +77,7 @@ class TextClassificationTrainer:
         self.metric_for_best_model = config.get('metric_for_best_model', 'accuracy')
         self.greater_is_better = config.get('greater_is_better', True)
 
-        self.metrics_capture_callback = MetricsCaptureCallback()
+        self.metrics_capture_callback = MetricsCallback(metrics_processor)
 
         self.train_data = self._process_dataset(train_data)
         self.val_data = self._process_dataset(val_data)
@@ -92,7 +94,7 @@ class TextClassificationTrainer:
         if self.model_name == 'gpt2':
             self.model.config.pad_token_id = self.model.config.eos_token_id
 
-        if self.augmentation:
+        if self.augmentation is True:
             self.augmenter = get_augmentation(self.augmodel_path, self.all, self.synonym, self.antonym, self.swap, self.spelling, self.word2vec, self.contextual)
             self.dataloader_num_workers = 0
 
@@ -115,8 +117,10 @@ class TextClassificationTrainer:
             return dataset
         except Exception as e:
             raise RuntimeError(f"Error processing dataset: {e}")
+        
+    def get_current_epoch(self):
+        return self.trainer.state.epoch
 
-    
     class TextClassificationDataset(Dataset):
         def __init__(self, texts, labels, tokenizer, max_length, augmenter=None, labels_to_augment=None):
             self.texts = texts
@@ -198,22 +202,21 @@ class TextClassificationTrainer:
 
             training_args = TrainingArguments(**training_args_dict)
 
-            trainer = CustomTrainer(
+            self.trainer = CustomTrainer(
                 model=self.model,
                 args=training_args,
                 train_dataset=self.train_dataset,
                 eval_dataset=self.eval_dataset,
                 compute_metrics=self._compute_metrics,
                 tokenizer=self.tokenizer,
-                metrics_capture_callback=self.metrics_capture_callback  # Hinzufügen des Callbacks
+                callbacks=[self.metrics_capture_callback]
             )
 
 
-            trainer.train()
+            self.trainer.train()
 
             last_evaluation_metrics = self.metrics_capture_callback.metrics[-1] if self.metrics_capture_callback.metrics else {}
             return last_evaluation_metrics
-
 
         except Exception as e:
             print(f"Error during training: {e}")

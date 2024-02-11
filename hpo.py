@@ -1,11 +1,8 @@
 import argparse
 import json
 import optuna
-import os
 import sys
-import subprocess
 import multiprocessing
-from pathlib import Path
 import pandas as pd
 from functools import partial
 from optuna.pruners import MedianPruner
@@ -40,21 +37,26 @@ def objective(trial, config, train_data, val_data):
     tunable_params = config["tunable_params"]
 
     for param_name, param_config in tunable_params.items():
-        if param_config["type"] == "loguniform":
-            fixed_params[param_name] = trial.suggest_loguniform(param_name, *param_config["args"])
-        elif param_config["type"] == "uniform":
-            fixed_params[param_name] = trial.suggest_uniform(param_name, *param_config["args"])
+        if param_config["type"] == "float":
+            fixed_params[param_name] = trial.suggest_float(param_name, *param_config["args"])
         elif param_config["type"] == "int":
             fixed_params[param_name] = trial.suggest_int(param_name, *param_config["args"])
+        elif param_config["type"] == "categorical":
+            fixed_params[param_name] = trial.suggest_categorical(param_name, *param_config["args"])
 
     
     fixed_params["output_dir"] = fixed_params["output_dir"] + f"_trial_{trial.number}"
     fixed_params["logging_dir"] = fixed_params["logging_dir"] + f"_trial_{trial.number}"
 
+    def metrics_processor(metrics):
+        epoch = trainer.get_current_epoch()
+        trial.report(metrics[fixed_params['eval_metric']], step=epoch)
+
     try:
-        trainer = TextClassificationTrainer(fixed_params, train_data, val_data)
+        trainer = TextClassificationTrainer(fixed_params, train_data, val_data, metrics_processor)
         results = trainer.train()
-        metric = results[config['eval_metric']]
+        print(f"Trial {trial.number} RESULTS: {results}")
+        metric = results[fixed_params['eval_metric']]
 
         return metric
     except RuntimeError as e:

@@ -1,5 +1,5 @@
 {
-  "model_name": "xlnet-base-cased",
+  "model_name": "roberta-base",
   "text_col": "text",
   "label_col": "label",
   "train_data_path": "F:\\\\applied_deep_learning\\\\data\\\\SemEval2024-Task8\\\\SubtaskB\\\\enrich_comp_data\\\\train_set_comp.jsonl",
@@ -23,7 +23,7 @@
   "data_seed": 42,
   "fp16": true,
   "dataloader_num_workers": 4,
-  "augmentation": true,
+  "augmentation": false,
   "labels_to_augment": [0, 5],
   "all": true,
   "synonym": true,

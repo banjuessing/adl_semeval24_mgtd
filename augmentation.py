@@ -41,7 +41,7 @@ if __name__ == "__main__":
     text = ["Phil Read (born 20 October 1979) was an Australian rules footballer for the AFL's West Coast Eagles and Melbourne Football Club.\n\nRead was educated at Wesley College, Perth.",
             "In the context of imperial China, the three major religions, Buddhism, Confucianism, and Taoism, did not have any specific relationships or interactions with each other. They were separate and distinct belief systems."]
     
-    aug = get_augmentation("./augmodel/", all=True, synonym=True, word2vec=True)
+    aug = get_augmentation("./augmodel/", all=True, synonym=True, swap=True)
 
     augmented = aug.augment(text)
     print(augmented)

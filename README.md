@@ -51,8 +51,8 @@ cat test_configs/[a_cfg_file_under_the_test_configs].cfg | xargs python load_mod
 ```
 
 ### Inference
-To load our best performed model for inference:
+To load our [best performed model](https://drive.google.com/file/d/10VTeF4KGdZMtmkXCbNIFK49bsjOQKbuz/view?usp=share_link) for inference:
 ```
-python infer.py
+python infer.py -[path_to_the_saved_model_checkpoint] -[text_to_be_detected]
 ```
-
+(Our best performed model is a sentence transformer model `all-roberta-large-v1` fintuned with Supervised Contrastive Loss.)

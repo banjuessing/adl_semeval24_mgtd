@@ -37,7 +37,7 @@ To prepare the datasets for training and evaluation, download the folder [`Subta
 
 ## Experiments
 ### Training, Evaluation and Testing
-It is possible to start reproducing all results by running `zsh run.sh` from inside the src directory. This will start executing training, evaluation, and testing of all possible model configurations in `train_configs` in a loop. Random seeds are set in all scripts.
+It is possible to start reproducing all results by running `zsh run.sh` from inside the `src` directory. This will start executing training, evaluation, and testing of all possible model configurations in `train_configs` in a loop. Random seeds are set in all scripts.
 
 Or to train, evaluate and test a single model configuration:
 ```

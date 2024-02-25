@@ -36,3 +36,23 @@ To prepare the datasets for training and evaluation, download the folder [`Subta
 (The dataset splits that we used in our experiments as described above are under the subfolder `enrich_comp_data`. The other two subfolders contain different splits of the wohle dataset, where subfolder `comp` contains the orginal training and development dataset from SemEval-2024 Task 8, and `mixed_domain_data` contains splits with a 80:10:10 ratio of all data from SemEval-2024 Task 8 and all PeerRead domain data from M4 dataset.)
 
 ## Experiments
+### Training, Evaluation and Testing
+It is possible to start reproducing all results by running `zsh run.sh` from inside the src directory. This will start executing training, evaluation, and testing of all possible model configurations in `train_configs` in a loop. Random seeds are set in all scripts.
+
+Or to train, evaluate and test a single model configuration:
+```
+cat train_configs/[a_cfg_file_under_the_train_configs].cfg | xargs python run_train.py
+```
+
+### Testing
+To load a single model checkpoint and test it on the test set:
+```
+cat test_configs/[a_cfg_file_under_the_test_configs].cfg | xargs python load_model_to_test.py
+```
+
+### Inference
+To load our best performed model for inference:
+```
+python infer.py
+```
+

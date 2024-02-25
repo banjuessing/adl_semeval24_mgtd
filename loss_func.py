@@ -1,3 +1,13 @@
+"""
+The method of Dual Contrastive Learning
+is based on the process of the paper: 'Dual Contrastive Learning: Text Classification via Label-Aware Data Augmentation'.
+https://arxiv.org/abs/2201.08702.
+
+The implementation is based on the official repository:
+https://github.com/hiyouga/Dual-Contrastive-Learning/blob/main/loss_func.py
+"""
+
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

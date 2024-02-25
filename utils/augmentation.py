@@ -5,7 +5,7 @@ import nlpaug.flow as naf
 def get_augmentation(augmodel_path, 
                      all=True, 
                      synonym=True, antonym=False, swap=False, spelling=False, 
-                     word2vec=False, contextual=False):
+                     word2vec=False):
     ops = []
 
     if synonym:
@@ -25,9 +25,6 @@ def get_augmentation(augmodel_path,
             model_type='word2vec', 
             model_path=augmodel_path+'GoogleNews-vectors-negative300.bin', 
             action='substitute'))
-        
-    if contextual:
-        ops.append(naw.ContextualWordEmbsAug(model_path='distilbert-base-uncased', action='substitute'))
     
     if all:
         aug = naf.Sequential(ops)

@@ -10,7 +10,7 @@ Our detection system is built upon Transformer-based techniques, leveraging vari
 | [Requirements](#Requirements)           | How to set up the python environemnt of our experiments         |
 | [Data Preparation](#Data-Preparation)   | How to download and prepare the data for our experiments        |
 | [Experiments](#Experiments)             | How to run our experiments and use our best model for inference |
-| [Archive](#Archive)                     | Explore additional experimental code and configurations         |
+| [Archive](#Archive)                     | Additional experimental code and configurations                 |
 
 ## Requirements
 Our experiments are based on:

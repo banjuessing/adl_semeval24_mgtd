@@ -10,6 +10,7 @@ Our detection system is built upon Transformer-based techniques, leveraging vari
 | [Requirements](#Requirements)           | How to set up the python environemnt of our experiments         |
 | [Data Preparation](#Data-Preparation)   | How to download and prepare the data for our experiments        |
 | [Experiments](#Experiments)             | How to run our experiments and use our best model for inference |
+| [Archive](#Archive)                     | Explore additional experimental code and configurations         |
 
 ## Requirements
 Our experiments are based on:
@@ -57,7 +58,7 @@ python infer.py -[path_to_the_saved_model_checkpoint] -[text_to_be_detected]
 ```
 (Our best performed model is a sentence transformer model `all-roberta-large-v1` fintuned with Supervised Contrastive Loss.)
 
-## Archive branche
+## Archive
 The Archive branch contains additional code developed during our project, offering insights into our experimentation with Transformer models and Bayesian Optimization techniques like Tree-Parzen Estimators using Optuna. This code diverges from the main codebase and may require additional packages (specified in the requirements file).
 
 To replicate these experiments, please refer to the specific setup and execution instructions provided within this section. Use the following command as a starting point: ```<insert command line here>```. Additionally, example JSON config files are included to illustrate possible configurations. This section is particularly valuable for those interested in deeper insights into the experimental aspects of our machine-generated text detection system.

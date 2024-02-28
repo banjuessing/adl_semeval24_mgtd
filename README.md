@@ -45,11 +45,15 @@ Or to train, evaluate and test a single model configuration:
 cat train_configs/[a_cfg_file_under_the_train_configs].cfg | xargs python run_train.py
 ```
 
+Or to train, evaluate and test a single model configuration with customized hyperparameters, refer to `get_runtime_args` in [`args.py`](src/utils/args.py) to create the corresponding configuration file.
+
 ### Testing
 To load a single model checkpoint and test it on the test set:
 ```
 cat test_configs/[a_cfg_file_under_the_test_configs].cfg | xargs python load_model_to_test.py
 ```
+
+Or to load a single model checkpoint and test it with customized hyperparameters, refer to `get_test_args` in [`args.py`](src/utils/args.py) to create the corresponding configuration file.
 
 ### Inference
 To load our [best performed model](https://drive.google.com/file/d/10VTeF4KGdZMtmkXCbNIFK49bsjOQKbuz/view?usp=share_link) for inference:
